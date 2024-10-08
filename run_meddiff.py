@@ -49,11 +49,15 @@ tasks = [
     'Shock_12h',
 ]
 task = tasks[0]
-s = np.load('FIDDLE_mimic3/features/{}/s.npz'.format(task))
-X = np.load('FIDDLE_mimic3/features/{}/X.npz'.format(task))
-s_feature_names = json.load(open('FIDDLE_mimic3/features/{}/s.feature_names.json'.format(task), 'r'))
-X_feature_names = json.load(open('FIDDLE_mimic3/features/{}/X.feature_names.json'.format(task), 'r'))
-df_pop = pd.read_csv('FIDDLE_mimic3/population/{}.csv'.format(task))
+
+dataset_name = "eICU"
+# dataset_name = "MIMIC"
+
+s = np.load(f'FIDDLE_{dataset_name}/features/{task}/s.npz')
+X = np.load(f'FIDDLE_{dataset_name}/features/{task}/X.npz')
+s_feature_names = json.load(open(f'FIDDLE_{dataset_name}/features/{task}/s.feature_names.json', 'r'))
+X_feature_names = json.load(open(f'FIDDLE_{dataset_name}/features/{task}/X.feature_names.json', 'r'))
+df_pop = pd.read_csv(f'FIDDLE_{dataset_name}/population/{task}.csv')
 x_s = torch.sparse_coo_tensor(torch.tensor(s['coords']), torch.tensor(s['data'])).to_dense().to(torch.float32)
 x_t = torch.sparse_coo_tensor(torch.tensor(X['coords']), torch.tensor(X['data'])).to_dense().to(torch.float32)
 
@@ -82,30 +86,32 @@ feature_dim_t = tmp_samples.shape[1]
 
 svae = VariationalAutoencoder(feature_dim_s).to(device)
 tvae = VariationalAutoencoder(feature_dim_t).to(device)
-tvae_dict = torch.load('saved_models/vae_tmp.pth', weights_only=True)
-svae_dict = torch.load('saved_models/vae_stat.pth', weights_only=True)
+tvae_dict = torch.load(f'saved_models_{dataset_name}/vae_tmp.pth', weights_only=True)
+svae_dict = torch.load(f'saved_models_{dataset_name}/vae_stat.pth', weights_only=True)
 tvae.load_state_dict(tvae_dict)
 svae.load_state_dict(svae_dict)
 svae.eval()
 tvae.eval()
-n_epoch = 50
-n_T = 1000
+n_epoch = 100
+n_T = 500
 device = "cuda"
 n_classes = 2
 n_feat = 256
+betas = (1e-4, 0.05)
 lrate = 1e-4
 save_model = True
 w = 0.1
-ddpm = DDPM(nn_model=ContextUnet(in_channels=1, n_feat=n_feat, n_classes=2), betas=(1e-4, 0.02), n_T=n_T, device=device, drop_prob=0.1)
+ddpm = DDPM(nn_model=ContextUnet(in_channels=1, n_feat=n_feat, n_classes=2), betas=betas, n_T=n_T, device=device, drop_prob=0.1)
 ddpm.to(device)
-trainer = MedDiff(tvae, svae, ddpm, train_loader, epochs=n_epoch, model_path='saved_models/medDiff.pth')
+trainer = MedDiff(tvae, svae, ddpm, train_loader, dataset_name, epochs=n_epoch)
 trainer.train_epoch()
 
-s0_syn, t0_syn = trainer.generate(2000, 0)
-s1_syn, t1_syn = trainer.generate(2000, 1)
+s0_syn, t0_syn = trainer.generate(1000, 0)
+s1_syn, t1_syn = trainer.generate(1000, 1)
 
 s_syn = np.concatenate([s0_syn, s1_syn], axis=0)
 t_syn = np.concatenate([t0_syn, t1_syn], axis=0)
 
-np.save('Synthetic_MIMIC/medDiff_static.npy', s_syn)
-np.save('Synthetic_MIMIC/medDiff_temporal.npy', t_syn)
+
+np.save(f'Synthetic_{dataset_name}/medDiff_static.npy', s_syn)
+np.save(f'Synthetic_{dataset_name}/medDiff_temporal.npy', t_syn)

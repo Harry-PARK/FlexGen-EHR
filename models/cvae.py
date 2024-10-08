@@ -3,13 +3,12 @@ import torch.utils.data
 from torch import nn, optim
 from torch.nn import functional as F
 
-
 bce = torch.nn.BCEWithLogitsLoss()
 
 class VariationalAutoencoder(nn.Module):
-    def __init__(self, input_size, hidden=256,out=128,numerical=True):
+    def __init__(self, input_size, hidden=128, out=64, numerical=True):
         super(VariationalAutoencoder, self).__init__()
-        self.fc1 = nn.Linear(input_size+1,hidden)
+        self.fc1 = nn.Linear(input_size+1, hidden)
         self.fc21 = nn.Linear(hidden, out)
         self.fc22 = nn.Linear(hidden, out)
         self.bn1 = nn.BatchNorm1d(hidden)
@@ -18,7 +17,7 @@ class VariationalAutoencoder(nn.Module):
         self.relu = nn.ReLU()
         self.fc3 = nn.Linear(out+1, hidden)
         self.fc4 = nn.Linear(hidden, input_size)
-        self.numeric=numerical
+        self.numeric = numerical
     
     def encode(self, x, cond):
         x = torch.hstack((x, cond.unsqueeze(1)))

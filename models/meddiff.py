@@ -11,11 +11,7 @@ import matplotlib.pyplot as plt
 
 device = 'cuda'
 class MedDiff(nn.Module):
-    def __init__(self, tvae, svae, ldm, trainloader,\
-                 model_path='saved_models/medDiff.pth',\
-                 synthetic_staticpath = 'Synthetic_MIMIC/medDiff_static.npy',\
-                 synthetic_temporalpath = 'Synthetic_MIMIC/medDiff_temporal.npy',\
-                 epochs=10):
+    def __init__(self, tvae, svae, ldm, trainloader, dataset, epochs=10):
         super(MedDiff, self).__init__()
         self.tvae = tvae
         self.svae = svae
@@ -25,11 +21,12 @@ class MedDiff(nn.Module):
         self.n_epoch = epochs
         self.tvae.eval()
         self.svae.eval()
-        self.xt = trainloader.dataset.xt
-        self.xs = trainloader.dataset.xs
-        self.m_path = model_path
-        self.s_path = synthetic_staticpath
-        self.t_path = synthetic_temporalpath
+        self.xt = trainloader.dataset_name.xt
+        self.xs = trainloader.dataset_name.xs
+        self.m_path = f'saved_models_{dataset}/flexgenDiff.pth'
+        self.s_path = f'Synthetic_{dataset}/flexgen_static.npy'
+        self.t_path = f'Synthetic_{dataset}/flexgen_temporal.npy'
+
 
 
     def train_epoch(self):
@@ -67,11 +64,13 @@ class MedDiff(nn.Module):
             epoch_tqdm.set_description(f"loss: {loss_d.item():.4f}")
             loss_history.append(loss_d.item())
 
-        torch.save(self.diff, self.m_path)
+        torch.save(self.diff.state_dict(), self.m_path)
 
 
     def generate(self, num_sample, label, eval=True):
-        diff = torch.load(self.m_path)
+        diff_dict = torch.load(self.m_path, weights_only=True)
+        self.diff.load_state_dict(diff_dict)
+        diff = self.diff
         diff.eval()
         with torch.no_grad():
             z_gen, _ = diff.sample(num_sample, (256,), device, label=[label], guide_w=0.5)
@@ -89,7 +88,6 @@ class MedDiff(nn.Module):
         t_fake_prob = np.mean(t_syn, axis=0)
         plt.scatter(t_real_prob, t_fake_prob)
 
-        s_syn = np.round(1 / (1 + np.exp(-s_syn)))
         s_real_prob = np.mean(self.xs.cpu().detach().numpy(), axis=0)
         s_fake_prob = np.mean(s_syn, axis=0)
         plt.scatter(s_real_prob, s_fake_prob)

@@ -50,27 +50,34 @@ if __name__ == '__main__':
         'Shock_4h',
         'Shock_12h',
     ]
-    task = tasks[1]
-    s = np.load('FIDDLE_eicu/features/{}/s.npz'.format(task))
-    X = np.load('FIDDLE_eicu/features/{}/X.npz'.format(task))
-    s_feature_names = json.load(open('FIDDLE_eicu/features/{}/s.feature_names.json'.format(task), 'r'))
-    X_feature_names = json.load(open('FIDDLE_eicu/features/{}/X.feature_names.json'.format(task), 'r'))
-    df_pop = pd.read_csv('FIDDLE_eicu/population/{}.csv'.format(task))
+    task = tasks[0]
+    # dataset_name = "eICU"
+    dataset_name = "MIMIC"
+
+    s = np.load(f'FIDDLE_{dataset_name}/features/{task}/s.npz')
+    X = np.load(f'FIDDLE_{dataset_name}/features/{task}/X.npz')
+    s_feature_names = json.load(open(f'FIDDLE_{dataset_name}/features/{task}/s.feature_names.json', 'r'))
+    X_feature_names = json.load(open(f'FIDDLE_{dataset_name}/features/{task}/X.feature_names.json', 'r'))
+    df_pop = pd.read_csv(f'FIDDLE_{dataset_name}/population/{task}.csv')
     x_s = torch.sparse_coo_tensor(torch.tensor(s['coords']), torch.tensor(s['data'])).to_dense().to(torch.float32)
     x_t = torch.sparse_coo_tensor(torch.tensor(X['coords']), torch.tensor(X['data'])).to_dense().to(torch.float32)
     x_t = x_t.sum(dim=1).to(torch.float32)
-    y = torch.tensor(df_pop.ARF_LABEL.values).to(torch.float32)
+
+    y = torch.tensor(df_pop["mortality_LABEL"].values).to(torch.float32)
     dataset_train_object = MIMICDATASET(x_t, x_s, y,\
                                          train=True, transform=False)
     train_loader = DataLoader(dataset_train_object, batch_size=batch_size, shuffle=True, \
                               num_workers=1, drop_last=False)
+
     tmp_samples, sta_samples, yb = next(iter(train_loader))
     feature_dim_s = sta_samples.shape[1]
     feature_dim_t = tmp_samples.shape[1]
     svae = VariationalAutoencoder(feature_dim_s).to(device)
     tvae = VariationalAutoencoder(feature_dim_t).to(device)
-    tvae = torch.load('saved_models/vae_tmp.pt')
-    svae = torch.load('saved_models/vae_stat.pt')
+    tvae_dict = torch.load(f'saved_models_{dataset_name}/vae_tmp.pth', weights_only=True)
+    svae_dict = torch.load(f'saved_models_{dataset_name}/vae_stat.pth', weights_only=True)
+    tvae.load_state_dict(tvae_dict)
+    svae.load_state_dict(svae_dict)
     svae.eval()
     tvae.eval()
 
@@ -88,8 +95,8 @@ if __name__ == '__main__':
     zs = zs1.detach().cpu().numpy().astype(np.float32)[0:500, :]
     zt = zt1.detach().cpu().numpy().astype(np.float32)[0:500, :]
     data = [zs, zt]
-    y = df_pop.ARF_LABEL.values[0:500]
-    y2 = df_pop.ARF_LABEL.values[0:500]
+    y = df_pop["mortality_LABEL"].values[0:500]
+    y2 = df_pop["mortality_LABEL"].values[0:500]
     datatype = [y.astype(np.int32), y2.astype(np.int32)]
     M = []
     n_datasets = len(data)
@@ -105,7 +112,7 @@ if __name__ == '__main__':
     Q, scale = orthogonal_procrustes(zs, zt)
     print(np.linalg.norm(zs@Q-(zt.T@trans).T))
     
-    # Pa.Visualize(data, integrated_data, datatype=datatype, mode='UMAP')
+    Pa.Visualize(data, integrated_data, datatype=datatype, mode='UMAP')
 
 
     # transp =T[0][0:-1,0:-1] / np.sum(T[0][0:-1,0:-1] , axis=1)[:, None]
@@ -114,22 +121,23 @@ if __name__ == '__main__':
     # # compute transported samples
     # transp_Xs = np.dot(transp, zs)
 
-    
-    # n_epoch = 1
-    # n_T = 50 
-    # device = "cuda"
-    # n_classes = 2
-    # n_feat = 256  
-    # lrate = 1e-4
-    # save_model = True
-    # w = 0.1
-    # ddpm = DDPM(nn_model=ContextUnet(in_channels=1, n_feat=n_feat, n_classes=2), \
-    #             betas=(1e-4, 0.02), n_T=n_T, device=device, drop_prob=0.1)
-    # ddpm.to(device)
-    # trainer = flexgen(tvae, svae, ddpm,train_loader,epochs=n_epoch,\
-    #                   model_path='Synthetic_MIMIC/diff.pt')
-    # trainer.generate(5000, 0)
+
+    n_epoch = 1
+    n_T = 50
+    device = "cuda"
+    n_classes = 2
+    n_feat = 256
+    lrate = 1e-4
+    save_model = True
+    w = 0.1
+    ddpm = DDPM(nn_model=ContextUnet(in_channels=1, n_feat=n_feat, n_classes=2),
+                betas=(1e-4, 0.02), n_T=n_T, device=device, drop_prob=0.1)
+    ddpm.to(device)
+    trainer = flexgen(tvae, svae, ddpm,train_loader,epochs=n_epoch)
+    trainer.generate(5000, 0)
+
     import matplotlib.pyplot as pl
     cmap = 'Blues'
     pl.imshow(T[0][0:-1, 0:-1], cmap=cmap, interpolation='nearest')
     pl.title('FGW  ($M+C_1,C_2$)')
+    pl.show()

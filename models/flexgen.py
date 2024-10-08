@@ -11,11 +11,7 @@ import matplotlib.pyplot as plt
 
 device = 'cuda'
 class flexgen(nn.Module):
-    def __init__(self, tvae, svae, ldm, trainloader,\
-                 model_path='saved_models/flexgenDiff.pth',\
-                 synthetic_staticpath = 'Synthetic_MIMIC/flexgen_static.npy',\
-                 synthetic_temporalpath = 'Synthetic_MIMIC/flexgen_temporal.npy',\
-                 epochs=10):
+    def __init__(self, tvae, svae, ldm, trainloader, dataset_name, epochs=10):
         super(flexgen, self).__init__()
         self.tvae = tvae
         self.svae = svae
@@ -27,10 +23,9 @@ class flexgen(nn.Module):
         self.svae.eval()
         self.xt = trainloader.dataset.xt
         self.xs = trainloader.dataset.xs
-        self.y = trainloader.dataset.y  # 추가
-        self.m_path = model_path
-        self.s_path = synthetic_staticpath
-        self.t_path = synthetic_temporalpath
+        self.m_path = f'saved_models_{dataset_name}/flexgenDiff.pth'
+        self.s_path = f'Synthetic_{dataset_name}/flexgen_static.npy'
+        self.t_path = f'Synthetic_{dataset_name}/flexgen_temporal.npy'
 
 
     def train_epoch(self):
@@ -51,10 +46,11 @@ class flexgen(nn.Module):
                 # zt, _ =  self.tvae.encode(xt)
                 # zs, _ =  self.svae.encode(xs)
                 # z = torch.concat([zt, zs],dim=1)
+                c2 = torch.nn.functional.one_hot(c, num_classes=2).float().to(device)
 
-                ms, ss = self.svae.encode(xs, c) # 수정
+                ms, ss = self.svae.encode(xs, c2) # 수정
                 zs = self.svae.reparameterize(ms, ss)
-                mt, st = self.tvae.encode(xt, c) # 수정
+                mt, st = self.tvae.encode(xt, c2) # 수정
                 zt = self.tvae.reparameterize(mt, st)
                 z = torch.concat([zt, zs],dim=1)
 
@@ -81,17 +77,17 @@ class flexgen(nn.Module):
         diff = self.diff
         diff.eval()
         with torch.no_grad():
-            z_gen, _ = diff.sample(num_sample, (256,), device, label=[label], guide_w=0.5)
-            z_t, z_s = torch.chunk(z_gen, 2, 1)
-
-            print(z_t.shape, z_s.shape)
+            z_gen, _ = diff.sample(num_sample, (1020,), device, label=[label], guide_w=0.5)
+            # z_t, z_s = torch.chunk(z_gen, 2, 1)
+            z_t = z_gen[:, :1000]
+            z_s = z_gen[:, 1000:]
 
             labels = torch.tensor(label).to(device).unsqueeze(0).repeat(num_sample)
-
+            labels = torch.nn.functional.one_hot(labels, num_classes=2).float().to(device)
+            print(z_t.shape, labels.shape)
             xt_gen = self.tvae.decode(z_t, labels)
             xs_gen = self.svae.decode(z_s, labels)
 
-            print(xt_gen.shape, xs_gen.shape)
 
         t_syn = xt_gen.cpu().detach().numpy()  # synthetic temporal records
         s_syn = xs_gen.cpu().detach().numpy()  # synthetic static records
@@ -104,7 +100,6 @@ class flexgen(nn.Module):
         plt.ylabel('Fake')
         plt.show()
 
-        s_syn = np.round(1 / (1 + np.exp(-s_syn)))
         s_real_prob = np.mean(self.xs.cpu().detach().numpy(), axis=0)
         s_fake_prob = np.mean(s_syn, axis=0)
         plt.scatter(s_real_prob, s_fake_prob)
@@ -112,7 +107,5 @@ class flexgen(nn.Module):
         plt.xlabel('Real')
         plt.ylabel('Fake')
         plt.show()
-
-
 
         return s_syn, t_syn
